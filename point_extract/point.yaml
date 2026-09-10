@@ -1,0 +1,29 @@
+# Replace coordinates before running. Paths may be absolute or relative to this YAML.
+point:
+  londeg: null
+  latdeg: null
+  max_distance_km: 25
+# Other files must contain the domain-selected cell at the same coordinates.
+match_tolerance_km: 0.01
+files:
+  - kind: domain
+    input: /lcrc/group/e3sm/data/inputdata/share/domains/domain.lnd.r025_IcoswISC30E3r5.250923.nc
+    output: output/domain_point.nc
+    lon: xc
+    lat: yc
+    mask: mask
+  - kind: surface
+    input: /lcrc/group/e3sm/data/inputdata/lnd/clm2/surfdata_map/surfdata_r025_simyr1850_c260808_with_TOP_50pfts.nc
+    output: output/surfdata_point.nc
+    lon: LONGXY
+    lat: LATIXY
+  - kind: landuse
+    input: /lcrc/group/e3sm/data/inputdata/lnd/clm2/surfdata_map/landuse.timeseries_r025_hist_simyr1850-2015_c260808_50pfts.nc
+    output: output/landuse_point.nc
+    lon: LONGXY
+    lat: LATIXY
+  - kind: restart
+    input: /home/ac.jtang/e3sm_run/scratch/chrys/I1850GSWCNPPHSWFMCROP.r025/I1850GSWCNPPHSWFMCROP.r025.elm.r.0001-01-03-00000.nc
+    output: output/initial_point.nc
+    lon: grid1d_lon
+    lat: grid1d_lat
