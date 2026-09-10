@@ -73,13 +73,17 @@ def transform(name, data, selection, restart):
     return data
 
 
-def extract(source, output, selection, restart):
+def extract(source, output, selection, restart, surface_output=None):
+    if restart and surface_output is None:
+        raise ValueError("Restart extraction requires a surface output path")
     with nc.Dataset(source) as src, nc.Dataset(output, 'w', format=src.data_model) as dst:
         if src.groups:
             raise ValueError('Grouped NetCDF files are not supported')
         src.set_auto_maskandscale(False)
         src.set_auto_chartostring(False)
         dst.setncatts(src.__dict__)
+        if restart:
+            dst.setncattr("surface_dataset", str(surface_output))
         for name, dim in src.dimensions.items():
             dst.createDimension(name, len(selection[name]) if name in selection else
                                 (None if dim.isunlimited() else len(dim)))
@@ -96,6 +100,8 @@ def extract(source, output, selection, restart):
         for ds in (src, dst):
             ds.set_auto_maskandscale(False)
             ds.set_auto_chartostring(False)
+        if restart and dst.getncattr("surface_dataset") != str(surface_output):
+            raise ValueError("Output verification failed: surface_dataset")
         for name, var in src.variables.items():
             expected = transform(name, raw_subset(var, selection), selection, restart)
             actual = dst[name][...]
@@ -118,6 +124,10 @@ def run(config, dry_run=False):
     files = cfg['files']
     if not files or files[0]['kind'] != 'domain':
         raise ValueError('The first file must be the domain')
+    surface_specs = [spec for spec in files if spec['kind'] == 'surface']
+    if any(spec['kind'] == 'restart' for spec in files) and len(surface_specs) != 1:
+        raise ValueError('Restart extraction requires exactly one surface file entry')
+    surface_output = path(surface_specs[0]['output']) if len(surface_specs) == 1 else None
     report = {'requested': {'londeg': lon, 'latdeg': lat}, 'files': []}
     jobs, destinations = [], set()
     sources = {path(s['input']) for s in files}
@@ -142,6 +152,8 @@ def run(config, dry_run=False):
             jobs.append((source, output, selection, restart))
             report['files'].append({'input': str(source), 'output': str(output),
                                     'indices_zero_based': {d: v.tolist() for d, v in selection.items()}})
+            if restart:
+                report['files'][-1]['surface_dataset'] = str(surface_output)
     print(json.dumps(report, indent=2))
     if dry_run:
         return report
@@ -153,7 +165,7 @@ def run(config, dry_run=False):
             with tempfile.NamedTemporaryFile(dir=output.parent, suffix='.nc', delete=False) as f:
                 temporary = Path(f.name)
             staged.append((temporary, output))
-            extract(source, temporary, selection, restart)
+            extract(source, temporary, selection, restart, surface_output)
         for temporary, output in staged:
             # Hard link refuses to overwrite an output created concurrently.
             os.link(temporary, output)

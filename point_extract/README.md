@@ -44,7 +44,13 @@ against the selected source values (with only the stated index changes).
 All files are staged and verified before publishing. Existing outputs and input
 overwrites are refused. Storage compression/chunk layout is not preserved.
 At most one selected variable is processed at a time; long time-series variables
-may still need substantial memory. Source global metadata is preserved, so
+may still need substantial memory. Restart extraction requires exactly one `kind: surface` entry in YAML. The
+restart global attribute `surface_dataset` is set to that entry's resolved output
+path and verified after writing; the dry-run JSON reports the planned value.
+This prevents ELM's transient-run surface filename consistency check from rejecting
+the renamed point surface file. The original restart is not modified. Set
+`fsurdat` to the generated surface file when running ELM. Other source global
+metadata is preserved, so
 descriptive global extent attributes may still describe the original grid.
 
 Coordinate agreement does not prove that a new case builds the same subgrid

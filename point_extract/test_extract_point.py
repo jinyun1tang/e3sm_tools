@@ -22,6 +22,7 @@ class PointTests(unittest.TestCase):
             for name, vals in [('xc', [350, 351, 352]), ('yc', [45, 45, 45]), ('mask', [1, 1, 0])]:
                 ds.createVariable(name, 'f8', ('nj', 'ni'))[:] = [vals]
         with nc.Dataset(self.root/'restart.nc', 'w') as ds:
+            ds.surface_dataset = '/original/global_surface.nc'
             for dim, size in [('gridcell', 2), ('topounit', 3), ('landunit', 3), ('column', 4), ('pft', 5), ('lev', 2)]:
                 ds.createDimension(dim, size)
             def var(name, dims, values, dtype='i4'):
@@ -47,6 +48,7 @@ class PointTests(unittest.TestCase):
             v[:] = [[1, 2, -999, 4, 5], [6, 7, 8, 9, 10]]
         self.cfg = {'point': {'londeg': -9, 'latdeg': 45}, 'files': [
             {'kind': 'domain', 'input': 'domain.nc', 'output': 'out/domain.nc', 'lon': 'xc', 'lat': 'yc', 'mask': 'mask'},
+            {'kind': 'surface', 'input': 'domain.nc', 'output': 'out/surface.nc', 'lon': 'xc', 'lat': 'yc'},
             {'kind': 'restart', 'input': 'restart.nc', 'output': 'out/restart.nc', 'lon': 'grid1d_lon', 'lat': 'grid1d_lat'}]}
 
     def execute(self, dry=False):
@@ -59,6 +61,7 @@ class PointTests(unittest.TestCase):
         report = self.execute()
         self.assertEqual(report['selected']['londeg'], 351)
         with nc.Dataset(self.root/'out/restart.nc') as ds:
+            self.assertEqual(ds.surface_dataset, str((self.root/'out/surface.nc').resolve()))
             np.testing.assert_array_equal(ds['pfts1d_column_index'][:], [1, 2, 3, 3])
             np.testing.assert_array_equal(ds['cols1d_topounit_index'][:], [1, 1, 2])
             np.testing.assert_array_equal(ds['cropseedc_deficit'][:], [-2, -3, -4, -5])
@@ -83,6 +86,20 @@ class PointTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'unselected parent'):
             self.execute()
         self.assertFalse((self.root/'out/domain.nc').exists())
+
+    def test_surface_metadata_preflight(self):
+        report = self.execute(True)
+        self.assertEqual(report['files'][-1]['surface_dataset'], str((self.root/'out/surface.nc').resolve()))
+        with nc.Dataset(self.root/'restart.nc') as ds:
+            self.assertEqual(ds.surface_dataset, '/original/global_surface.nc')
+        self.cfg['files'] = [s for s in self.cfg['files'] if s['kind'] != 'surface']
+        with self.assertRaisesRegex(ValueError, 'exactly one surface'):
+            self.execute(True)
+
+    def test_ambiguous_surface_rejected(self):
+        self.cfg['files'].append(dict(self.cfg['files'][1], output='out/other_surface.nc'))
+        with self.assertRaisesRegex(ValueError, 'exactly one surface'):
+            self.execute(True)
 
     def test_rectilinear(self):
         with nc.Dataset(self.root/'regular.nc', 'w') as ds:
