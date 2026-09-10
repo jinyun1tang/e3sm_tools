@@ -39,7 +39,6 @@ paramfile = '/lcrc/group/e3sm/data/inputdata/lnd/clm2/paramdata/clm_params_c2510
 fsurdat = '$POINT_DATA/surfdata_point_10910.nc'
 finidat = '$POINT_DATA/initial_point_10910.nc'
 flanduse_timeseries = '$POINT_DATA/landuse_point_10910.nc'
-fatmlndfrc = '$POINT_DATA/domain_point_10910.nc'
 do_budgets = .true.
 EOF
 
@@ -48,4 +47,4 @@ cat > user_nl_mosart <<EOF
  parafile = '/lcrc/group/e3sm/data/inputdata/lnd/clm2/surfdata_map/global_reservoir_qd_20260706.nc'
 
  frivinp_rtm='/lcrc/group/e3sm/data/inputdata/rof/mosart/MOSART_global_qd_20240212.v3.nc'
- EOF
+EOF
