@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ELM single-point simulation on Chrysalis</title>
+<style>
+:root{color-scheme:light;--ink:#163042;--accent:#126b72}*{box-sizing:border-box}body{margin:0;background:#f2f5f6;color:var(--ink);font:17px/1.65 system-ui,sans-serif}main{max-width:1000px;margin:auto;padding:48px 30px 80px}header{border-bottom:3px solid var(--accent);padding-bottom:25px}h1{font-size:2.4rem;line-height:1.15}h2{margin-top:42px;font-size:1.45rem}h3{font-size:1.1rem}a{color:var(--accent)}.tag{font-size:.85rem;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}.note{border-left:4px solid var(--accent);background:#e3eff0;padding:16px 20px;margin:20px 0}pre{background:#142b39;color:#eef8fa;padding:20px;overflow:auto;border-radius:8px;line-height:1.5;font-size:14px}code{font-family:ui-monospace,monospace}table{border-collapse:collapse;width:100%;background:white;font-size:15px}th,td{padding:12px;text-align:left;border-bottom:1px solid #d7e1e5;vertical-align:top}th{background:#e3eff0}li{margin:7px 0}footer{margin-top:45px;border-top:1px solid #ccc;padding-top:20px;font-size:14px}@media print{body{background:white}main{padding:0}pre{white-space:pre-wrap;background:#edf1f3;color:black}h2{break-after:avoid}table,pre{break-inside:avoid}}
+</style></head><body><main>
+<header><div class="tag">E3SM · ELM · Crop carbon-balance diagnosis</div><h1>Create a single-point simulation on Chrysalis</h1><p>Use extracted land inputs with <strong>I1850GSWCNPPHSWFMCROP</strong>, the Intel compiler, and the original GSWP3 forcing streams.</p><p>Prepared September 10, 2026. This workflow is based on the supplied <code>lnd_in</code>, <code>datm_in</code>, <code>mosart_in</code>, and the inspected E3SM checkout. Commands are a template and have not been executed on Chrysalis.</p></header>
+<nav aria-label="Contents"><p><a href="#inputs">Inputs</a> · <a href="#create">Create case</a> · <a href="#elm">ELM settings</a> · <a href="#forcing">Forcing</a> · <a href="#run">Build and run</a> · <a href="#diagnose">Validation</a></p></nav>
+<section id="inputs"><h2>1. Prepare inputs and choose a case name</h2><p>Run on Chrysalis using the same E3SM source version as the original simulation where possible. Replace all example paths and choose a unique <code>CASENAME</code>. The point retains every crop patch and topographic unit belonging to the selected grid cell.</p>
+<table><thead><tr><th>Extracted file</th><th>Purpose</th></tr></thead><tbody><tr><td><code>domain_point.nc</code></td><td>Land and DATM destination domain</td></tr><tr><td><code>surfdata_point.nc</code></td><td>Surface properties, crop fractions, soil and topography</td></tr><tr><td><code>landuse_point.nc</code></td><td>Transient crop/PFT fractions and harvest</td></tr><tr><td><code>initial_point.nc</code></td><td>ELM state with consistent subgrid relationships</td></tr></tbody></table>
+<p>The extraction tools and YAML instructions are in <a href="point_extract/README.md">point_extract/README.md</a>. Reuse full atmospheric and auxiliary forcing files initially. Parameter and snow lookup files remain unchanged.</p>
+<div class="note">This checkout uses <code>ELM_USRDAT</code> and <code>ELM_USRDAT_NAME</code>, not the older <code>CLM_USRDAT</code> names in some OLMT examples. The selected grid has a null routing grid; preserve <code>do_rtm=.false.</code>.</div></section>
+<section id="create"><h2>2. Create the case</h2><p>Use Bash for the commands below. Add <code>--project YOUR_ALLOCATION</code> to <code>create_newcase</code> if your account requires an explicit allocation.</p>
+<pre><code>E3SM_ROOT=/path/to/E3SM
+CASE=/path/to/CASENAME
+POINT_DATA=/path/to/extracted/point/files
+
+cd "$E3SM_ROOT/cime/scripts"
+./create_newcase \
+  --case "$CASE" \
+  --compset I1850GSWCNPPHSWFMCROP \
+  --res ELM_USRDAT \
+  --mach chrysalis \
+  --compiler intel \
+  --pecount 1
+
+cd "$CASE"</code></pre>
+<p>CIME uses <code>--mach</code>; <code>--machine</code> belongs to other wrappers. One MPI task is suitable as an initial point configuration; the scheduler may still allocate a whole node.</p>
+<h2>3. Set domain, dates, and forcing years</h2>
+<pre><code>./xmlchange ELM_USRDAT_NAME=1x1pt_crop
+./xmlchange ATM_DOMAIN_PATH="$POINT_DATA"
+./xmlchange LND_DOMAIN_PATH="$POINT_DATA"
+./xmlchange ATM_DOMAIN_FILE=domain_point.nc
+./xmlchange LND_DOMAIN_FILE=domain_point.nc
+
+./xmlchange RUN_TYPE=startup
+./xmlchange CONTINUE_RUN=FALSE
+./xmlchange RUN_STARTDATE=0001-01-03
+
+./xmlchange DATM_CLMNCEP_YR_START=1901
+./xmlchange DATM_CLMNCEP_YR_END=1920
+./xmlchange DATM_CLMNCEP_YR_ALIGN=1
+
+./xmlchange ATM_NCPL=48
+./xmlchange STOP_OPTION=ndays,STOP_N=5
+./xmlchange REST_OPTION=ndays,REST_N=1
+./xmlchange DOUT_S=FALSE</code></pre>
+<p>January 3, year 1 matches the supplied restart filename. Verify the actual initial-state timestamp, including time of day. Keep the original calendar. Model year 1 is aligned with forcing year 1901; five days is only an initial smoke run.</p>
+<div class="note">This is a new startup initialized from ELM state. It is not an exact continuation of the complete coupled simulation, which would also require compatible component and coupler restart state.</div></section>
+<section id="elm"><h2>4. Configure user_nl_elm</h2><p>Start with the original case's <code>user_nl_elm</code> when available. Set the four point paths to absolute paths:</p>
+<pre><code>fsurdat = '/absolute/path/to/surfdata_point.nc'
+finidat = '/absolute/path/to/initial_point.nc'
+flanduse_timeseries = '/absolute/path/to/landuse_point.nc'</code></pre>
+<p>Preserve the original crop, soil, irrigation, and transient settings:</p>
+<pre><code>dtime = 1800
+maxpatch_pft = 51
+create_crop_landunit = .true.
+use_crop = .true.
+irrigate = .true.
+tw_irr = .true.
+do_harvest = .true.
+do_transient_crops = .true.
+do_transient_pfts = .true.
+use_hydrstress = .true.
+use_lch4 = .true.
+use_vertsoilc = .true.
+use_dynroot = .false.
+spinup_state = 0
+do_budgets = .true.</code></pre>
+<p>Keep the original <code>paramfile</code>, <code>fsoilordercon</code>, <code>fsnowaging</code>, and <code>fsnowoptics</code> paths, plus other original overrides such as nutrient competition, soil decomposition, and topographic options. The excerpt above is not a replacement for every original setting.</p>
+<p>Retain the original auxiliary stream file paths and configuration:</p>
+<table><thead><tr><th>ELM auxiliary input</th><th>Variable</th><th>Configured years</th><th>Spatial mapping</th></tr></thead><tbody><tr><td>N deposition</td><td>NDEP_year</td><td>1850–1850</td><td>Bilinear</td></tr><tr><td>P deposition</td><td>PDEP_year</td><td>2000–2000</td><td>Bilinear</td></tr><tr><td>Population density</td><td>hdm</td><td>1850–1850</td><td>Bilinear</td></tr><tr><td>Lightning</td><td>lnfm</td><td>1–1, cycling</td><td>Bilinear</td></tr></tbody></table>
+<p>Use plain namelist assignments in <code>user_nl_elm</code>. Do not paste the generated <code>lnd_in</code> group delimiters (<code>&amp;elm_inparm</code>, etc.). Compare generated values with the original namelist after previewing.</p>
+<h2>5. Preserve inactive MOSART</h2><p>In <code>user_nl_mosart</code>, preserve the original overrides, including:</p><pre><code>do_rtm = .false.</code></pre><p>The inspected <code>RtmMod.F90</code> returns from routing initialization when this is false. No point river network or reservoir dataset needs to be created. Keep ELM's original two-way irrigation configuration, and verify imported supply/deficit values rather than changing irrigation mode to get the case running.</p></section>
+<section id="forcing"><h2>6. Set up and inspect DATM</h2><pre><code>./case.setup
+./preview_namelists</code></pre>
+<p>Inspect <code>CaseDocs/datm_in</code> and <code>CaseDocs/lnd_in</code>. DATM's <code>domainfile</code> must be the point destination domain. Keep <code>datamode='CLMNCEP'</code>, as in the original configuration.</p>
+<table><thead><tr><th>Stream filename suffix</th><th>Alignment / first / last year</th><th>tintalgo</th></tr></thead><tbody><tr><td>CLMGSWP3v1.Solar</td><td>1 / 1901 / 1920</td><td>coszen</td></tr><tr><td>CLMGSWP3v1.Precip</td><td>1 / 1901 / 1920</td><td>nearest</td></tr><tr><td>CLMGSWP3v1.TPQW</td><td>1 / 1901 / 1920</td><td>linear</td></tr><tr><td>presaero.clim_1850</td><td>1 / 1 / 1</td><td>linear</td></tr><tr><td>topo.observed</td><td>1 / 1 / 1</td><td>lower</td></tr></tbody></table>
+<p>All five originally use <code>mapalgo='bilinear'</code>, <code>fillalgo='nn'</code>, <code>mapmask='nomask'</code>, <code>fillmask='nomask'</code>, <code>taxmode='cycle'</code>, and <code>dtlimit=1.5</code>. Preserve their order and settings.</p>
+<p>If generated source streams differ from the original run, copy the five original stream definitions into the case with the <code>user_</code> prefix. For example:</p>
+<pre><code>cp /path/to/original/datm.streams.txt.CLMGSWP3v1.Solar \
+   "$CASE/user_datm.streams.txt.CLMGSWP3v1.Solar"</code></pre>
+<p>Repeat for Precip, TPQW, aerosols, and topography. Ensure any relative source paths still resolve. Rerun <code>./preview_namelists</code>. If namelist stream settings also differ, preserve the original settings through <code>user_nl_datm</code> and verify the generated result.</p>
+<div class="note">Keep each stream's original <strong>source</strong> domain and source data together. Only the DATM <strong>destination</strong> is the extracted land point. Replacing a global source domain with a point domain while keeping global data is inconsistent.</div></section>
+<section id="run"><h2>7. Check inputs, build, and submit</h2><pre><code>./check_input_data
+./case.build
+./case.submit
+./xmlquery RUNDIR</code></pre><p>Resolve missing inputs before building. Check the generated batch script and allocation settings before submitting. Inspect the ELM log in the reported run directory for initialization warnings, consistency failures, and carbon-balance diagnostics.</p></section>
+<section id="diagnose"><h2>8. Validate the reproduction</h2><ul><li>Confirm the point's latitude, longitude, land fractions, crop/PFT composition, and topographic units.</li><li>Compare initialized crop pools and weights with the source cell, especially <code>leafc_xfer</code>, <code>grainc</code>, <code>cropseedc_deficit</code>, and column <code>prod1c</code>.</li><li>Confirm forcing calendar, year alignment, weather values, auxiliary inputs, and parameter files.</li><li>Check that MOSART remains inactive and irrigation supply/deficit behavior matches the original run.</li><li>Run through the planting or harvest event that triggered the original error. A successful five-day smoke run does not prove the event is reproduced.</li><li>Investigate initial-condition consistency failures before disabling checks; extraction preserves values but does not guarantee the new case builds an identical subgrid structure.</li></ul></section>
+<footer>Source references in the inspected E3SM checkout: <code>cime_config/config_grids.xml</code> (ELM_USRDAT), <code>components/elm/cime_config/config_compsets.xml</code>, <code>components/elm/cime_config/buildnml</code>, and <code>components/mosart/src/riverroute/RtmMod.F90</code>. Actual executable behavior depends on the source version used on Chrysalis.</footer>
+</main></body></html>
