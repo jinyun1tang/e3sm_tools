@@ -7,6 +7,7 @@ warnings.filterwarnings("ignore")
 fpath = '/lcrc/group/e3sm/data/inputdata/lnd/clm2/surfdata_map/'
 fname = 'landuse.timeseries_r025_hist_simyr1850-2015_c260808_50pfts.nc'
 
+#read data
 with xr.open_dataset(fpath + fname, chunks={'time': 1}) as ds:
     ds_new = ds.copy(deep=True)
 
@@ -45,6 +46,12 @@ ds_new['PCT_URBAN']   = xr.where(deviation_mask, ds_new['PCT_URBAN'] * scale, ds
 # Restore each variable to match the input file's dimension order before writing,
 # otherwise ELM will read data in the wrong order without any error.
 with xr.open_dataset(fpath + fname) as ds_orig:
+    # Preserve source variables (including coordinates) not supplied by ds_new.
+    # Keep any existing ds_new variables so rebalanced values are not overwritten.
+    for var in ds_orig.variables:
+        if var not in ds_new.variables:
+            ds_new[var] = ds_orig[var].copy(deep=True)
+
     for var in ds_new.data_vars:
         if var in ds_orig and ds_new[var].dims != ds_orig[var].dims:
             print(f'Restoring dim order for {var}: {ds_new[var].dims} → {ds_orig[var].dims}')
