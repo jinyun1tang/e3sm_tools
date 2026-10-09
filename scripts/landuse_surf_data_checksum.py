@@ -57,10 +57,8 @@ with xr.open_dataset(fpath + fname) as ds_orig:
             print(f'Restoring dim order for {var}: {ds_new[var].dims} → {ds_orig[var].dims}')
             ds_new[var] = ds_new[var].transpose(*ds_orig[var].dims)
 
-# Force physical data reordering in memory (not just dimension names)
-print("Rechunking to sync data layout with dimensions...")
-ds_new = ds_new.compute()
-
+# Write lazy arrays directly; xarray applies the transposes during serialization.
+# NetCDF4 supports large PCT arrays without the classic NetCDF size restrictions.
 fname_new = 'landuse.timeseries_r025_hist_simyr1850-2015_c261005_50pfts_1850REBAL.nc'
-ds_new.to_netcdf(fname_new, format='NETCDF3_CLASSIC')
+ds_new.to_netcdf(fname_new, engine='netcdf4', format='NETCDF4')
 print("File successfully rebalanced for 1850 baseline:", fname_new)
