@@ -40,6 +40,48 @@ ds_new['PCT_GLACIER'] = xr.where(deviation_mask, ds_new['PCT_GLACIER'] * scale, 
 ds_new['PCT_URBAN']   = xr.where(deviation_mask, ds_new['PCT_URBAN'] * scale, ds_new['PCT_URBAN'])
 
 # ---------------------------------------------------------
+# Repair bad PCT_NAT_PFT columns (see check_pct_nat_pft.py)
+# ---------------------------------------------------------
+# ELM aborts with "sum of PCT_NAT_PFT not 1.0" when
+# abs(sum(PCT_NAT_PFT/100 over natpft) - 1) > 1e-14, i.e. 1e-12 in percent.
+# Bad columns are NaN, all-zero ("no data" fill), negative, or off from 100.
+# Good columns are left bit-identical; bad ones are repaired as follows:
+#   nan/neg : NaN and negative values -> 0, then treated like the cases below
+#   zero    : 100% bare ground (natpft 0), as mksurfdata writes at no-data points
+#   off     : renormalized to 100, with the rounding residual put on the
+#             largest PFT so the sum passes ELM's 1e-14 check
+PCT_NAT_PFT_TOL = 1e-12
+
+def fix_pct_nat_pft(arr):
+    """arr: PCT_NAT_PFT with natpft as the last axis."""
+    has_nan = np.isnan(arr).any(axis=-1)
+    has_neg = (arr < 0).any(axis=-1)
+    s_raw = np.nansum(arr, axis=-1)
+    bad = has_nan | has_neg | (np.abs(s_raw - 100.0) > PCT_NAT_PFT_TOL)
+    if not bad.any():
+        return arr
+
+    clean = np.clip(np.nan_to_num(arr.astype(np.float64), nan=0.0), 0.0, None)
+    s = clean.sum(axis=-1)
+    nodata = s <= 0.0
+    fixed = clean * (100.0 / np.where(nodata, 1.0, s))[..., None]
+
+    # absorb the rounding residual into the largest PFT
+    k = np.argmax(fixed, axis=-1)[..., None]
+    others = fixed.sum(axis=-1, keepdims=True) - np.take_along_axis(fixed, k, axis=-1)
+    np.put_along_axis(fixed, k, 100.0 - others, axis=-1)
+
+    fixed[nodata] = 0.0
+    fixed[nodata, 0] = 100.0
+    return np.where(bad[..., None], fixed, arr).astype(arr.dtype)
+
+ds_new['PCT_NAT_PFT'] = xr.apply_ufunc(
+    fix_pct_nat_pft, ds_new['PCT_NAT_PFT'],
+    input_core_dims=[['natpft']], output_core_dims=[['natpft']],
+    dask='parallelized', output_dtypes=[ds_new['PCT_NAT_PFT'].dtype],
+    keep_attrs=True)
+
+# ---------------------------------------------------------
 # Restore original dimension order and save output
 # ---------------------------------------------------------
 # xarray can silently reorder dimensions during operations (e.g. cft moves to last).
