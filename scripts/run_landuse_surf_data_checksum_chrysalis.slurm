@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --exclusive
 #SBATCH --mem=0
-#SBATCH --time=04:00:00
+#SBATCH --time=24:00:00
 #SBATCH --output=landuse_rebal-%j.out
 #SBATCH --error=landuse_rebal-%j.err
 
