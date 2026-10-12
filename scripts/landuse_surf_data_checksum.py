@@ -22,8 +22,10 @@ pct_urban_sum = ds_new['PCT_URBAN'].sum(dim='numurbl')
 suma = (ds_new['PCT_LAKE'] + ds_new['PCT_WETLAND'] + pct_urban_sum +
         ds_new['PCT_GLACIER'] + ds_new['PCT_NATVEG'] + pct_crop_1850)
 
-deviation_mask = abs(suma - 100.0) > (2.0 * sys.float_info.epsilon)
-scale = 100.0 / suma
+# Cells where all landunits are 0 (or NaN) cannot be rescaled: 100/0 = inf and
+# 0*inf = NaN would poison every PCT_* field there, so leave them unchanged.
+deviation_mask = (suma > 0.0) & (abs(suma - 100.0) > (2.0 * sys.float_info.epsilon))
+scale = 100.0 / xr.where(suma > 0.0, suma, 1.0)
 
 # Update 1850 slice of PCT_CROP safely without altering other years
 adjusted_crop_1850 = xr.where(deviation_mask, pct_crop_1850 * scale, pct_crop_1850)
