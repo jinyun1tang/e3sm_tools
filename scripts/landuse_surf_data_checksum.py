@@ -12,6 +12,42 @@ with xr.open_dataset(fpath + fname, chunks={'time': 1}) as ds:
     ds_new = ds.copy(deep=True)
 
 # ---------------------------------------------------------
+# Fill corrupt trailing years with the last valid year
+# ---------------------------------------------------------
+# In the c260808 source the last 9 slices (2007-2015) were never written:
+# time = 0 and every field holds garbage (~1e-315, negative, NaN). ELM picks
+# slices by YEAR and treats cur_year >= YEAR(last) as "past the end", so if
+# YEAR(last) is 0 too it reads the garbage slice from 1850 on. Replace each slice
+# whose time is not its expected year with the last valid slice before it,
+# and set time/YEAR to the expected years.
+FIRST_YEAR, LAST_YEAR = 1850, 2015
+expected_years = np.arange(FIRST_YEAR, LAST_YEAR + 1)
+if ds_new.sizes['time'] != expected_years.size:
+    sys.exit(f"ERROR: expected {expected_years.size} time slices "
+             f"({FIRST_YEAR}-{LAST_YEAR}), found {ds_new.sizes['time']}")
+
+valid = ds_new['time'].values == expected_years
+if not valid[0]:
+    sys.exit(f"ERROR: first time slice is {ds_new['time'].values[0]}, expected {FIRST_YEAR}")
+src_idx = np.maximum.accumulate(np.where(valid, np.arange(valid.size), 0))
+if not valid.all():
+    filled = expected_years[~valid]
+    print(f'Filling corrupt years {filled.tolist()} with copies of '
+          f'{sorted(set(expected_years[src_idx[~valid]].tolist()))}')
+    time_attrs = ds_new['time'].attrs
+    time_encoding = ds_new['time'].encoding
+    ds_new = ds_new.isel(time=src_idx)
+    ds_new = ds_new.assign_coords(time=('time', expected_years.astype(ds_new['time'].dtype)))
+    ds_new['time'].attrs, ds_new['time'].encoding = time_attrs, time_encoding
+    if 'YEAR' in ds_new:
+        ds_new['YEAR'] = ds_new['YEAR'].copy(data=expected_years.astype(ds_new['YEAR'].dtype))
+    # Record that these years are not real data.
+    ds_new.attrs['corrupt_years_filled'] = (
+        f'Years {filled.min()}-{filled.max()} ({filled.size} slices) were corrupt in {fname} '
+        f'and are copies of year {expected_years[src_idx[~valid]].min()}; they contain no '
+        f'land-use change after that year.')
+
+# ---------------------------------------------------------
 # 1850 Baseline Landuse Sum Rebalancing
 # ---------------------------------------------------------
 # Extract the 1850 crop value as a static 2D slice (lsmlat, lsmlon)
@@ -53,6 +89,7 @@ ds_new['PCT_URBAN']   = xr.where(deviation_mask, ds_new['PCT_URBAN'] * scale, ds
 #   off     : renormalized to 100, with the rounding residual put on the
 #             largest PFT so the sum passes ELM's 1e-14 check
 PCT_NAT_PFT_TOL = 1e-12
+PCT_NAT_PFT_NODATA = 1e-6   # percent
 
 def fix_pct_nat_pft(arr):
     """arr: PCT_NAT_PFT with natpft as the last axis."""
@@ -63,9 +100,12 @@ def fix_pct_nat_pft(arr):
     if not bad.any():
         return arr
 
-    clean = np.clip(np.nan_to_num(arr.astype(np.float64), nan=0.0), 0.0, None)
+    # NaN/inf -> 0. Sums below PCT_NAT_PFT_NODATA (e.g. ~1e-315 garbage) count as
+    # no data: rescaling them by 100/s would overflow to inf and give 0*inf = NaN.
+    clean = np.clip(np.nan_to_num(arr.astype(np.float64), nan=0.0, posinf=0.0, neginf=0.0),
+                    0.0, None)
     s = clean.sum(axis=-1)
-    nodata = s <= 0.0
+    nodata = s < PCT_NAT_PFT_NODATA
     fixed = clean * (100.0 / np.where(nodata, 1.0, s))[..., None]
 
     # absorb the rounding residual into the largest PFT
