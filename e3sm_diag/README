@@ -1,0 +1,12 @@
+#########################################################
+# ----- For running diags_lineplots.py on Chrysalis -----
+# First start an interactive batch session
+srun -N 1 -t 100 --pty bash
+
+# Load e3sm_unified
+source /lcrc/soft/climate/e3sm-unified/load_latest_e3sm_unified_chrysalis.sh
+
+# ----- For generating e3sm diags -----
+python create_climo_chrysalis.py
+
+python run_e3sm_diags_hist_chrysalis.py -d diags_v2_CBGC.cfg
